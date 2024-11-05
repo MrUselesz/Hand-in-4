@@ -3,17 +3,23 @@
 package proto
 
 import (
+	context "context"
 	grpc "google.golang.org/grpc"
+	codes "google.golang.org/grpc/codes"
+	status "google.golang.org/grpc/status"
 )
 
 // This is a compile-time assertion to ensure that this generated file
 // is compatible with the grpc package it is being compiled against.
+// Requires gRPC-Go v1.32.0 or later.
 const _ = grpc.SupportPackageIsVersion7
 
 // ConsensusClient is the client API for Consensus service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type ConsensusClient interface {
+	ToHost(ctx context.Context, in *Empty, opts ...grpc.CallOption) (Consensus_ToHostClient, error)
+	RequestPermission(ctx context.Context, in *Request, opts ...grpc.CallOption) (*Response, error)
 }
 
 type consensusClient struct {
@@ -24,10 +30,53 @@ func NewConsensusClient(cc grpc.ClientConnInterface) ConsensusClient {
 	return &consensusClient{cc}
 }
 
+func (c *consensusClient) ToHost(ctx context.Context, in *Empty, opts ...grpc.CallOption) (Consensus_ToHostClient, error) {
+	stream, err := c.cc.NewStream(ctx, &Consensus_ServiceDesc.Streams[0], "/Consensus/ToHost", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &consensusToHostClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type Consensus_ToHostClient interface {
+	Recv() (*NodeId, error)
+	grpc.ClientStream
+}
+
+type consensusToHostClient struct {
+	grpc.ClientStream
+}
+
+func (x *consensusToHostClient) Recv() (*NodeId, error) {
+	m := new(NodeId)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+func (c *consensusClient) RequestPermission(ctx context.Context, in *Request, opts ...grpc.CallOption) (*Response, error) {
+	out := new(Response)
+	err := c.cc.Invoke(ctx, "/Consensus/RequestPermission", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ConsensusServer is the server API for Consensus service.
 // All implementations must embed UnimplementedConsensusServer
 // for forward compatibility
 type ConsensusServer interface {
+	ToHost(*Empty, Consensus_ToHostServer) error
+	RequestPermission(context.Context, *Request) (*Response, error)
 	mustEmbedUnimplementedConsensusServer()
 }
 
@@ -35,6 +84,12 @@ type ConsensusServer interface {
 type UnimplementedConsensusServer struct {
 }
 
+func (UnimplementedConsensusServer) ToHost(*Empty, Consensus_ToHostServer) error {
+	return status.Errorf(codes.Unimplemented, "method ToHost not implemented")
+}
+func (UnimplementedConsensusServer) RequestPermission(context.Context, *Request) (*Response, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RequestPermission not implemented")
+}
 func (UnimplementedConsensusServer) mustEmbedUnimplementedConsensusServer() {}
 
 // UnsafeConsensusServer may be embedded to opt out of forward compatibility for this service.
@@ -44,14 +99,67 @@ type UnsafeConsensusServer interface {
 	mustEmbedUnimplementedConsensusServer()
 }
 
-func RegisterConsensusServer(s *grpc.Server, srv ConsensusServer) {
-	s.RegisterService(&_Consensus_serviceDesc, srv)
+func RegisterConsensusServer(s grpc.ServiceRegistrar, srv ConsensusServer) {
+	s.RegisterService(&Consensus_ServiceDesc, srv)
 }
 
-var _Consensus_serviceDesc = grpc.ServiceDesc{
+func _Consensus_ToHost_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(Empty)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(ConsensusServer).ToHost(m, &consensusToHostServer{stream})
+}
+
+type Consensus_ToHostServer interface {
+	Send(*NodeId) error
+	grpc.ServerStream
+}
+
+type consensusToHostServer struct {
+	grpc.ServerStream
+}
+
+func (x *consensusToHostServer) Send(m *NodeId) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func _Consensus_RequestPermission_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Request)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ConsensusServer).RequestPermission(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/Consensus/RequestPermission",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ConsensusServer).RequestPermission(ctx, req.(*Request))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// Consensus_ServiceDesc is the grpc.ServiceDesc for Consensus service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var Consensus_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "Consensus",
 	HandlerType: (*ConsensusServer)(nil),
-	Methods:     []grpc.MethodDesc{},
-	Streams:     []grpc.StreamDesc{},
-	Metadata:    "grpc/proto.proto",
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "RequestPermission",
+			Handler:    _Consensus_RequestPermission_Handler,
+		},
+	},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "ToHost",
+			Handler:       _Consensus_ToHost_Handler,
+			ServerStreams: true,
+		},
+	},
+	Metadata: "grpc/proto.proto",
 }

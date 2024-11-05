@@ -5,11 +5,23 @@ option go_package = "Consensus/grpc/proto";
 
 
 message Empty {}
+message NodeId {
+    int32 id = 1;
+    int32 NodeId = 2;
+    string addresses = 3;
+}
+message Request {
+    int32 id = 1;
+    int32 address = 2;
+}
+message Response {
+    int32 id = 1;
+}
 
 service Consensus {
    
-   
-    
+   rpc ToHost (Empty) returns (stream NodeId) {}; 
+   rpc RequestPermission (Request) returns (Response) {};
 }
 
 
