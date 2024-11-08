@@ -11,7 +11,6 @@ import (
 
 // This is a compile-time assertion to ensure that this generated file
 // is compatible with the grpc package it is being compiled against.
-// Requires gRPC-Go v1.32.0 or later.
 const _ = grpc.SupportPackageIsVersion7
 
 // ConsensusClient is the client API for Consensus service.
@@ -31,7 +30,7 @@ func NewConsensusClient(cc grpc.ClientConnInterface) ConsensusClient {
 }
 
 func (c *consensusClient) ToHost(ctx context.Context, in *Empty, opts ...grpc.CallOption) (Consensus_ToHostClient, error) {
-	stream, err := c.cc.NewStream(ctx, &Consensus_ServiceDesc.Streams[0], "/Consensus/ToHost", opts...)
+	stream, err := c.cc.NewStream(ctx, &_Consensus_serviceDesc.Streams[0], "/Consensus/ToHost", opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -99,8 +98,8 @@ type UnsafeConsensusServer interface {
 	mustEmbedUnimplementedConsensusServer()
 }
 
-func RegisterConsensusServer(s grpc.ServiceRegistrar, srv ConsensusServer) {
-	s.RegisterService(&Consensus_ServiceDesc, srv)
+func RegisterConsensusServer(s *grpc.Server, srv ConsensusServer) {
+	s.RegisterService(&_Consensus_serviceDesc, srv)
 }
 
 func _Consensus_ToHost_Handler(srv interface{}, stream grpc.ServerStream) error {
@@ -142,10 +141,7 @@ func _Consensus_RequestPermission_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
-// Consensus_ServiceDesc is the grpc.ServiceDesc for Consensus service.
-// It's only intended for direct use with grpc.RegisterService,
-// and not to be introspected or modified (even as a copy)
-var Consensus_ServiceDesc = grpc.ServiceDesc{
+var _Consensus_serviceDesc = grpc.ServiceDesc{
 	ServiceName: "Consensus",
 	HandlerType: (*ConsensusServer)(nil),
 	Methods: []grpc.MethodDesc{

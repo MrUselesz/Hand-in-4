@@ -8,11 +8,11 @@ message Empty {}
 message NodeId {
     int32 id = 1;
     int32 NodeId = 2;
-    string addresses = 3;
+    string address = 3;
 }
 message Request {
     int32 id = 1;
-    int32 address = 2;
+    string address = 2;
 }
 message Response {
     int32 id = 1;
