@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"sync"
 	"time"
 
 	"log"
@@ -17,7 +18,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-//all Global values that we need for the node.
+// all Global values that we need for the node.
 type ConsensusServer struct {
 	proto.UnimplementedConsensusServer
 
@@ -29,7 +30,6 @@ type ConsensusServer struct {
 	nodeCount     int32
 	connections   map[int32]proto.ConsensusClient
 }
-
 
 func main() {
 	/* here if needed
@@ -50,7 +50,8 @@ func main() {
 	server.start_server()
 
 }
-//this is the code that responds to talkToHost.
+
+// this is the code that responds to talkToHost.
 func (s *ConsensusServer) ToHost(req *proto.Empty, stream proto.Consensus_ToHostServer) error {
 	fmt.Println("we recieved yout call")
 	var temp [3]int32
@@ -74,11 +75,17 @@ func (s *ConsensusServer) ToHost(req *proto.Empty, stream proto.Consensus_ToHost
 	return nil
 
 }
-//this when logic is added need a address input i have not added that cause i have just tested sending and recieving data
-func (s *ConsensusServer) connect() (connection proto.ConsensusClient) {
-	conn, err := grpc.NewClient("localhost:5000", grpc.WithTransportCredentials(insecure.NewCredentials()))
+
+/*
+* establishes connection and returns it
+*
+* @param address - address to which connection is to be established
+* @returns a proto client
+ */
+func (s *ConsensusServer) connect(address string) (connection proto.ConsensusClient) {
+	conn, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		log.Fatalf("Not working")
+		log.Fatalf("Failed connection on: " + address)
 	}
 
 	client := proto.NewConsensusClient(conn)
@@ -86,32 +93,57 @@ func (s *ConsensusServer) connect() (connection proto.ConsensusClient) {
 	return client
 }
 
-//request from all participents that they wish to write in the critical area.
-func (s *ConsensusServer) reqeustAccess(){
-	
-	connection := s.connect()
-	
+/*
+* Made to run as a go rutine so it can run asynchronous
+*
+* @param address -the address to which it will call connect
+* @param wg -a wait group to make sure it has permission from all nodes
+ */
+
+func (s *ConsensusServer) individualRequest(address string, wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	connection := s.connect(address)
+
 	response, err := connection.RequestPermission(context.Background(), &proto.Request{Id: s.id, Address: s.address})
 	if err != nil {
-		log.Fatalf("Fuck ", err)
+		log.Fatalf("failed response on: "+address, err)
 	}
+	s.permissions = append(s.permissions, response.Id) //this might be dangerous ¯\_(ツ)_/¯
+}
 
-	fmt.Println(response.GetId())
+// request from all participents that they wish to write in the critical area.
+func (s *ConsensusServer) reqeustAccess() { //this might need to be called as a goRutine to not stall other proccesses
+	wg := new(sync.WaitGroup)
+
+	for key, val := range s.nodeAddresses {
+		if key == s.id {
+			continue
+		} //don't connect to itself
+		wg.Add(1)
+		go s.individualRequest(val, wg)
+	}
+	wg.Wait() //makes sure that all requests have returned and permission is thereby granted
+
 	s.criticalArea()
 }
 
-func(s *ConsensusServer) RequestPermission(ctx context.Context, req *proto.Request) (*proto.Response, error) {
+func (s *ConsensusServer) RequestPermission(ctx context.Context, req *proto.Request) (*proto.Response, error) {
+	if Contains(s.permissions, req.GetId()) {
+		s.queue = append(s.queue, req.Id)
+		//how do we make it wait...?
+	}
 	return &proto.Response{Id: s.id}, nil
 }
 
-func (s *ConsensusServer) criticalArea(){
+func (s *ConsensusServer) criticalArea() {
 	fmt.Println(s.id, " has accessed the critical area")
-	time.Sleep(1*time.Second)
+	log.Println(s.id, " has accessed the critical area")
+	time.Sleep(1 * time.Second)
 	fmt.Println(s.id, " has left the critical area")
 }
 
-
-//starts the server.
+// starts the server.
 func (s *ConsensusServer) start_server() {
 	grpcServer := grpc.NewServer()
 	listener, err := net.Listen("tcp", ":5000")
@@ -134,15 +166,14 @@ func (s *ConsensusServer) start_server() {
 		s.reqeustAccess()
 	}
 }
-//This talks to the Host and that is hardcoded to be localhost 5000
-func (s *ConsensusServer) talkToTheHost() {
-	fmt.Println("To think is to be")
 
-	client := s.connect()
+// This talks to the Host and that is hardcoded to be localhost 5000
+func (s *ConsensusServer) talkToTheHost() {
+	client := s.connect("localhost:5000")
 	fmt.Println("We in!")
 	stream, err := client.ToHost(context.Background(), &proto.Empty{})
 	if err != nil {
-		log.Fatalf("DUCK!", err)
+		log.Fatalf("Error trying to connect to host", err)
 	}
 	for {
 		msg, err := stream.Recv()
@@ -150,7 +181,7 @@ func (s *ConsensusServer) talkToTheHost() {
 			break
 		}
 		if err != nil {
-			log.Fatalf("DUCKING! ", err)
+			log.Fatalf("Error in recieving message ", err)
 		}
 
 		fmt.Println("We got the goods ", msg.GetId(), msg.GetNodeId(), msg.GetAddress())
@@ -163,11 +194,22 @@ func (s *ConsensusServer) talkToTheHost() {
 	}
 
 }
-//this open the log
+
+// this open the log
 func openLogFile(path string) (*os.File, error) {
 	logFile, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0644)
 	if err != nil {
 		log.Println("Log failed")
 	}
 	return logFile, nil
+}
+
+// simple util method for wheter a slice contains a
+func Contains(s []int32, e int32) bool {
+	for _, a := range s {
+		if a == e {
+			return true
+		}
+	}
+	return false
 }
