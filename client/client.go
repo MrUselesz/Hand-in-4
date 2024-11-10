@@ -132,6 +132,8 @@ func (s *ConsensusServer) individualRequest(address string, wg *sync.WaitGroup) 
 // request from all participents that they wish to write in the critical area.
 func (s *ConsensusServer) reqeustAccess() { //this might need to be called as a goRutine to not stall other proccesses
 
+	log.Println(s.id, " is Requesting access the criticalArea")
+
 	s.isTryingCritical = true
 	wg := new(sync.WaitGroup)
 
@@ -178,6 +180,7 @@ func (s *ConsensusServer) RequestPermission(ctx context.Context, req *proto.Requ
 			break
 		}
 	}
+	log.Println(s.id, " is giving permission to: ", req.GetId())
 	return &proto.Response{Id: s.id}, nil
 }
 
