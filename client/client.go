@@ -22,7 +22,7 @@ import (
 
 var newLine string
 
-// all Global values that we need for the node.
+// all Global values that we need for the node. Basically a node "class"
 type ConsensusServer struct {
 	proto.UnimplementedConsensusServer
 
@@ -38,40 +38,44 @@ type ConsensusServer struct {
 }
 
 func main() {
-	//here if needed
+
+	//For trimming "     strings     "
 	if runtime.GOOS == "windows" {
 		newLine = "\r\n"
 	} else {
 		newLine = "\n"
 	}
 
+	//Connect the node to the log
 	file, err := openLogFile("../mylog.log")
 	if err != nil {
 		log.Fatalf("Not working")
 	}
 	log.SetOutput(file)
 
+	//Initialize node
 	server := &ConsensusServer{connections: make(map[int32]proto.ConsensusClient), nodeAddresses: make(map[int32]string)}
 	server.start_server()
 
 }
 
-// this is the code that responds to talkToHost.
+// This is the code that responds to talkToHost.
 func (s *ConsensusServer) ToHost(req *proto.Empty, stream proto.Consensus_ToHostServer) error {
-	fmt.Println("we recieved yout call")
 
+	//Host keeps track of how many nodes joined
 	s.nodeCount++
+
+	//As well as the latest available port (host is 5000, each next node has port 5000 + (n-1) where n is the number of nodes )
 	s.nodePort++
 
-	fmt.Println("I got here")
-
+	//Case for first node, as the host currently does not keep track of any addresses (a node never maps its own address)
 	if len(s.nodeAddresses) == 0 {
-		fmt.Println("Sendinge")
 		err := stream.Send(&proto.NodeId{Id: s.nodeCount, NodeId: s.id, Address: fmt.Sprintf(":%v", s.nodePort), NodeAddress: s.address})
 		if err != nil {
 			return nil
 		}
-	} else {
+
+	} else { //Standard procedure, host assigning a node with an ID and port
 
 		for nodeId, nodeAddress := range s.nodeAddresses {
 
@@ -79,12 +83,15 @@ func (s *ConsensusServer) ToHost(req *proto.Empty, stream proto.Consensus_ToHost
 			case <-stream.Context().Done():
 				return status.Error(codes.Canceled, "Stream has ended")
 			default:
-				fmt.Println("Sendinge")
+				//Send message back to new node that requested it.
+				//Id and Address are to be assigned to the new node. Technically only needs to be sent once but hey
+
+				//NodeId and NodeAddress are the attributes of another node. This message is sent as many times as there are currently mapped nodes,
+				//resulting in the new node being aware of all its peers
 				err := stream.Send(&proto.NodeId{Id: s.nodeCount, NodeId: nodeId, Address: fmt.Sprintf(":%v", s.nodePort), NodeAddress: nodeAddress})
 				if err != nil {
 					return nil
 				}
-				fmt.Println("message sent!")
 			}
 		}
 	}
@@ -126,13 +133,13 @@ func (s *ConsensusServer) individualRequest(address string, wg *sync.WaitGroup) 
 	if err != nil {
 		log.Fatalf("failed response on: "+address, err)
 	}
-	s.permissions = append(s.permissions, response.Id) //this might be dangerous ¯\_(ツ)_/¯
+	s.permissions = append(s.permissions, response.Id) //Register a received permission from a node with ID response.Id
 }
 
-// request from all participents that they wish to write in the critical area.
-func (s *ConsensusServer) reqeustAccess() { //this might need to be called as a goRutine to not stall other proccesses
+// Request critical area permission from all participants.
+func (s *ConsensusServer) reqeustAccess() {
 
-	log.Println(s.id, " is Requesting access the criticalArea")
+	log.Println(s.id, " is requesting access to the critical area")
 
 	s.isTryingCritical = true
 	wg := new(sync.WaitGroup)
@@ -140,7 +147,7 @@ func (s *ConsensusServer) reqeustAccess() { //this might need to be called as a 
 	for key, val := range s.nodeAddresses {
 		if key == s.id {
 			continue
-		} //don't connect to itself
+		} //Don't connect to itself. Impossible but just in case :)
 		wg.Add(1)
 		go s.individualRequest(val, wg)
 	}
@@ -155,7 +162,7 @@ func (s *ConsensusServer) RequestPermission(ctx context.Context, req *proto.Requ
 	//it gets added to the recipient's list of addresses
 
 	if _, ok := s.nodeAddresses[req.GetId()]; !ok {
-		//do something here. do what?
+
 		s.nodeAddresses[req.GetId()] = strings.Trim(req.GetAddress(), newLine)
 
 	}
@@ -164,63 +171,81 @@ func (s *ConsensusServer) RequestPermission(ctx context.Context, req *proto.Requ
 	//the requesting node gets put in the queue
 	if Contains(s.permissions, req.GetId()) {
 		s.queue = append(s.queue, req.GetId())
-		//how do we make it wait...?
 
 	} else if s.id < req.GetId() && s.isTryingCritical {
 
 		//This else if statement checks for ID seniority. In case two nodes request permission
-		//simultaneously, the older node (lower ID) will always get the permission first, while
+		//from each other simultaneously, the older node (lesser ID) will always get the permission first, while
 		//the younger node gets put in its queue
 		s.queue = append(s.queue, req.GetId())
 
 	}
 
+	//"Waiter" for loop. Basically, a node flushes its permissions and its queue
+	//upon being done with the critical area, and gives permissions to nodes in its
+	//queue. So, once the queue is flushed, this for loop no longer blocks the request
 	for {
 		if !Contains(s.queue, req.GetId()) {
 			break
 		}
 	}
+
+	//Give permission to whomsoever may have requested it
 	log.Println(s.id, " is giving permission to: ", req.GetId())
 	return &proto.Response{Id: s.id}, nil
 }
 
 func (s *ConsensusServer) criticalArea() {
-	fmt.Println(s.id, " has accessed the critical area")
+
 	log.Println(s.id, " has accessed the critical area")
+
+	//Simulate doing something critical to the area
 	time.Sleep(5 * time.Second)
-	fmt.Println(s.id, " has left the critical area")
+
 	log.Println(s.id, " has left the critical area")
 
 	log.Println(s.queue, " is the current queue of: ", s.id)
-	s.queue = s.queue[:0]             //this might work?
-	s.permissions = s.permissions[:0] //this better work.
 
+	//Flush queue and permission lists
+	s.queue = s.queue[:0]
+	s.permissions = s.permissions[:0]
+
+	//Not trying to access the critical area for a little bit
 	s.isTryingCritical = false
 }
 
 // starts the server.
 func (s *ConsensusServer) start_server() {
 
+	//If parameter "host" is included, this node is the host
 	if len(os.Args) > 1 && os.Args[1] == "host" {
 
-		fmt.Println("Host made lol")
 		s.id = 1
+
 		s.address = ":5000"
+
+		//Counter needed for latest available port
 		s.nodePort = 5000
+
+		//Guess what this one means
 		s.nodeCount = 1
 
 	} else {
 
+		//If not host, ask the host who you are
 		s.talkToTheHost()
 
 	}
+
+	//Rest of the method is just initializing a node with the
+	//hardcoded or host-provided information
+
 	grpcServer := grpc.NewServer()
 	listener, err := net.Listen("tcp", s.address)
 	if err != nil {
 		log.Fatalf("Failed to listen on port: ", s.address, err)
 
 	}
-	fmt.Println("Server is active")
 	proto.RegisterConsensusServer(grpcServer, s)
 	go func() {
 		err = grpcServer.Serve(listener)
@@ -230,6 +255,9 @@ func (s *ConsensusServer) start_server() {
 		}
 	}()
 
+	//Runs perpetually until program is killed,
+	//requests access almost immediately whenever it can
+
 	for {
 		s.reqeustAccess()
 		time.Sleep(1 * time.Second)
@@ -238,9 +266,10 @@ func (s *ConsensusServer) start_server() {
 
 // This talks to the Host and that is hardcoded to be localhost 5000
 func (s *ConsensusServer) talkToTheHost() {
+
+	//
 	client := s.connect("localhost:5000")
 	s.nodeAddresses[1] = ":5000"
-	fmt.Println("We in!")
 	stream, err := client.ToHost(context.Background(), &proto.Empty{})
 	if err != nil {
 		log.Fatalf("Error trying to connect to host", err)
@@ -254,14 +283,16 @@ func (s *ConsensusServer) talkToTheHost() {
 			log.Fatalf("Error in recieving message ", err)
 		}
 
-		fmt.Println("We got the goods ", msg.GetId(), msg.GetNodeId(), strings.Trim(msg.GetAddress(), newLine), strings.Trim(msg.GetNodeAddress(), newLine))
-
+		//0 is default value for our Id, so this runs once when the node does not know itself,
+		//then proceeds to set Id and port (address) values in its struct
 		if s.id == 0 {
 
 			s.id = msg.GetId()
 			s.address = strings.Trim(msg.GetAddress(), "\n")
 
 		}
+
+		//Maps address of a peer node to the relevant Id once it got the info from host
 		s.nodeAddresses[msg.GetNodeId()] = strings.Trim(msg.GetNodeAddress(), newLine)
 	}
 
