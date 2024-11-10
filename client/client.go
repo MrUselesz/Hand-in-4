@@ -5,6 +5,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -18,6 +20,8 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+var newLine string
+
 // all Global values that we need for the node.
 type ConsensusServer struct {
 	proto.UnimplementedConsensusServer
@@ -28,18 +32,18 @@ type ConsensusServer struct {
 	permissions      []int32
 	nodeAddresses    map[int32]string
 	nodeCount        int32
+	nodePort         int32
 	connections      map[int32]proto.ConsensusClient
 	isTryingCritical bool
 }
 
 func main() {
-	/* here if needed
-	 	if runtime.GOOS == "windows" {
-			newLine = "\r\n"
-		} else {
-			newLine = "\n"
-		}
-	*/
+	//here if needed
+	if runtime.GOOS == "windows" {
+		newLine = "\r\n"
+	} else {
+		newLine = "\n"
+	}
 
 	file, err := openLogFile("../mylog.log")
 	if err != nil {
@@ -55,21 +59,33 @@ func main() {
 // this is the code that responds to talkToHost.
 func (s *ConsensusServer) ToHost(req *proto.Empty, stream proto.Consensus_ToHostServer) error {
 	fmt.Println("we recieved yout call")
-	var temp [3]int32
-	temp[0] = 4
-	temp[1] = 2
-	temp[2] = 3
-	for i := 0; i < 3; i++ {
-		select {
-		case <-stream.Context().Done():
-			return status.Error(codes.Canceled, "Stream has ended")
-		default:
-			fmt.Println("Sendinge")
-			err := stream.Send(&proto.NodeId{Id: temp[i]})
-			if err != nil {
-				return nil
+
+	s.nodeCount++
+	s.nodePort++
+
+	fmt.Println("I got here")
+
+	if len(s.nodeAddresses) == 0 {
+		fmt.Println("Sendinge")
+		err := stream.Send(&proto.NodeId{Id: s.nodeCount, NodeId: s.id, Address: fmt.Sprintf(":%v", s.nodePort), NodeAddress: s.address})
+		if err != nil {
+			return nil
+		}
+	} else {
+
+		for nodeId, nodeAddress := range s.nodeAddresses {
+
+			select {
+			case <-stream.Context().Done():
+				return status.Error(codes.Canceled, "Stream has ended")
+			default:
+				fmt.Println("Sendinge")
+				err := stream.Send(&proto.NodeId{Id: s.nodeCount, NodeId: nodeId, Address: fmt.Sprintf(":%v", s.nodePort), NodeAddress: nodeAddress})
+				if err != nil {
+					return nil
+				}
+				fmt.Println("message sent!")
 			}
-			fmt.Println("message sent!")
 		}
 	}
 
@@ -138,7 +154,7 @@ func (s *ConsensusServer) RequestPermission(ctx context.Context, req *proto.Requ
 
 	if _, ok := s.nodeAddresses[req.GetId()]; !ok {
 		//do something here. do what?
-		s.nodeAddresses[req.GetId()] = req.GetAddress()
+		s.nodeAddresses[req.GetId()] = strings.Trim(req.GetAddress(), newLine)
 
 	}
 
@@ -168,8 +184,9 @@ func (s *ConsensusServer) RequestPermission(ctx context.Context, req *proto.Requ
 func (s *ConsensusServer) criticalArea() {
 	fmt.Println(s.id, " has accessed the critical area")
 	log.Println(s.id, " has accessed the critical area")
-	time.Sleep(1 * time.Second)
+	time.Sleep(5 * time.Second)
 	fmt.Println(s.id, " has left the critical area")
+	log.Println(s.id, " has left the critical area")
 
 	s.queue = s.queue[:0]             //this might work?
 	s.permissions = s.permissions[:0] //this better work.
@@ -180,10 +197,13 @@ func (s *ConsensusServer) criticalArea() {
 // starts the server.
 func (s *ConsensusServer) start_server() {
 
-	if os.Args[0] == "host" {
+	if len(os.Args) > 1 && os.Args[1] == "host" {
 
+		fmt.Println("Host made lol")
 		s.id = 1
 		s.address = ":5000"
+		s.nodePort = 5000
+		s.nodeCount = 1
 
 	} else {
 
@@ -206,15 +226,16 @@ func (s *ConsensusServer) start_server() {
 		}
 	}()
 
-	if s.address != ":5000" {
-		s.talkToTheHost()
+	for {
 		s.reqeustAccess()
+		time.Sleep(1 * time.Second)
 	}
 }
 
 // This talks to the Host and that is hardcoded to be localhost 5000
 func (s *ConsensusServer) talkToTheHost() {
 	client := s.connect("localhost:5000")
+	s.nodeAddresses[1] = ":5000"
 	fmt.Println("We in!")
 	stream, err := client.ToHost(context.Background(), &proto.Empty{})
 	if err != nil {
@@ -229,13 +250,15 @@ func (s *ConsensusServer) talkToTheHost() {
 			log.Fatalf("Error in recieving message ", err)
 		}
 
-		fmt.Println("We got the goods ", msg.GetId(), msg.GetNodeId(), msg.GetAddress())
+		fmt.Println("We got the goods ", msg.GetId(), msg.GetNodeId(), strings.Trim(msg.GetAddress(), newLine), strings.Trim(msg.GetNodeAddress(), newLine))
 
 		if s.id == 0 {
+
 			s.id = msg.GetId()
+			s.address = strings.Trim(msg.GetAddress(), "\n")
 
 		}
-		s.nodeAddresses[msg.GetNodeId()] = msg.GetAddress()
+		s.nodeAddresses[msg.GetNodeId()] = strings.Trim(msg.GetNodeAddress(), newLine)
 	}
 
 }
