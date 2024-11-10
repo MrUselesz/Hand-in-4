@@ -22,13 +22,14 @@ import (
 type ConsensusServer struct {
 	proto.UnimplementedConsensusServer
 
-	id            int32
-	address       string
-	queue         []int32
-	permissions   []int32
-	nodeAddresses map[int32]string
-	nodeCount     int32
-	connections   map[int32]proto.ConsensusClient
+	id               int32
+	address          string
+	queue            []int32
+	permissions      []int32
+	nodeAddresses    map[int32]string
+	nodeCount        int32
+	connections      map[int32]proto.ConsensusClient
+	isTryingCritical bool
 }
 
 func main() {
@@ -114,6 +115,8 @@ func (s *ConsensusServer) individualRequest(address string, wg *sync.WaitGroup) 
 
 // request from all participents that they wish to write in the critical area.
 func (s *ConsensusServer) reqeustAccess() { //this might need to be called as a goRutine to not stall other proccesses
+
+	s.isTryingCritical = true
 	wg := new(sync.WaitGroup)
 
 	for key, val := range s.nodeAddresses {
@@ -129,12 +132,33 @@ func (s *ConsensusServer) reqeustAccess() { //this might need to be called as a 
 }
 
 func (s *ConsensusServer) RequestPermission(ctx context.Context, req *proto.Request) (*proto.Response, error) {
-	if Contains(s.permissions, req.GetId()) {
-		s.queue = append(s.queue, req.Id)
-		//how do we make it wait...?
+
+	//If the node requesting permission is not known to the one taking the request
+	//it gets added to the recipient's list of addresses
+
+	if _, ok := s.nodeAddresses[req.GetId()]; !ok {
+		//do something here. do what?
+		s.nodeAddresses[req.GetId()] = req.GetAddress()
+
 	}
+
+	//If the node that takes the request already got permission from the requesting node,
+	//the requesting node gets put in the queue
+	if Contains(s.permissions, req.GetId()) {
+		s.queue = append(s.queue, req.GetId())
+		//how do we make it wait...?
+
+	} else if s.id < req.GetId() && s.isTryingCritical {
+
+		//This else if statement checks for ID seniority. In case two nodes request permission
+		//simultaneously, the older node (lower ID) will always get the permission first, while
+		//the younger node gets put in its queue
+		s.queue = append(s.queue, req.GetId())
+
+	}
+
 	for {
-		if (!Contains(s.permissions, req.GetId())){
+		if !Contains(s.queue, req.GetId()) {
 			break
 		}
 	}
@@ -147,7 +171,10 @@ func (s *ConsensusServer) criticalArea() {
 	time.Sleep(1 * time.Second)
 	fmt.Println(s.id, " has left the critical area")
 
-	//s.queue = slice[:0] //this might work?
+	s.queue = s.queue[:0]             //this might work?
+	s.permissions = s.permissions[:0] //this better work.
+
+	s.isTryingCritical = false
 }
 
 // starts the server.
