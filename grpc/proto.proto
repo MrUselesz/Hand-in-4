@@ -6,9 +6,18 @@ option go_package = "Consensus/grpc/proto";
 
 message Empty {}
 message NodeId {
+
+    //Id that gets assigned to the new node
     int32 id = 1;
+    
+    //Id of all other nodes
     int32 NodeId = 2;
+
+    //Address that gets assigned to the new node
     string address = 3;
+
+    //Addresses of all other nodes
+    string NodeAddress = 4;
 }
 message Request {
     int32 id = 1;

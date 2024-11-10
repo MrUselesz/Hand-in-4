@@ -40,6 +40,7 @@ func main() {
 			newLine = "\n"
 		}
 	*/
+
 	file, err := openLogFile("../mylog.log")
 	if err != nil {
 		log.Fatalf("Not working")
@@ -47,7 +48,6 @@ func main() {
 	log.SetOutput(file)
 
 	server := &ConsensusServer{connections: make(map[int32]proto.ConsensusClient), nodeAddresses: make(map[int32]string)}
-
 	server.start_server()
 
 }
@@ -179,8 +179,19 @@ func (s *ConsensusServer) criticalArea() {
 
 // starts the server.
 func (s *ConsensusServer) start_server() {
+
+	if os.Args[0] == "host" {
+
+		s.id = 1
+		s.address = ":5000"
+
+	} else {
+
+		s.talkToTheHost()
+
+	}
 	grpcServer := grpc.NewServer()
-	listener, err := net.Listen("tcp", ":5000")
+	listener, err := net.Listen("tcp", s.address)
 	if err != nil {
 		log.Fatalf("Failed to listen on port: ", s.address, err)
 
