@@ -133,6 +133,11 @@ func (s *ConsensusServer) RequestPermission(ctx context.Context, req *proto.Requ
 		s.queue = append(s.queue, req.Id)
 		//how do we make it wait...?
 	}
+	for {
+		if (!Contains(s.permissions, req.GetId())){
+			break
+		}
+	}
 	return &proto.Response{Id: s.id}, nil
 }
 
@@ -141,6 +146,8 @@ func (s *ConsensusServer) criticalArea() {
 	log.Println(s.id, " has accessed the critical area")
 	time.Sleep(1 * time.Second)
 	fmt.Println(s.id, " has left the critical area")
+
+	//s.queue = slice[:0] //this might work?
 }
 
 // starts the server.
