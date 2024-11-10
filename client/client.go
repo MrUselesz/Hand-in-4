@@ -188,6 +188,7 @@ func (s *ConsensusServer) criticalArea() {
 	fmt.Println(s.id, " has left the critical area")
 	log.Println(s.id, " has left the critical area")
 
+	log.Println(s.queue, " is the current queue")
 	s.queue = s.queue[:0]             //this might work?
 	s.permissions = s.permissions[:0] //this better work.
 
